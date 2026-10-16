@@ -61,6 +61,27 @@ teardown() {
   [ "$n" -eq 1 ]
 }
 
+# --- send.sh: a clock that produces nothing ---
+#
+# The timestamp and id come from command substitutions around `date`. When that
+# command fails, `$( )` yields "" and the message used to be stored with at=''
+# (and reported as sent). The sync cipher helper rejects an empty created_at, so
+# such a row could never be pushed.
+
+@test "send: refuses to store a message when the clock command produces no timestamp" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  # Fail only the formatted-timestamp call; everything else sees the real date.
+  printf '#!/bin/sh\ncase "$*" in *%%Y*) exit 1 ;; esac\nexec %s "$@"\n' \
+    "$(command -v date)" > "$BATS_TEST_TMPDIR/bin/date"
+  chmod +x "$BATS_TEST_TMPDIR/bin/date"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run bash "$SCRIPTS/send.sh" testteam alice bob "hello"
+  [ "$status" -ne 0 ]
+  grep -qF "unusable timestamp" <<< "$output"
+  refute grep -qF "Sent to" <<< "$output"
+  run bash -c 'source "'"$SCRIPTS"'/lib/storage.sh"; agmsg_storage_load; storage_list_unread testteam bob'
+  [ -z "$output" ]
+}
+
 # --- send.sh: --body-file / flag-shaped body (#1101) ---
 
 @test "send: --body-file delivers a body that begins with a hyphen, intact (#1101)" {

@@ -318,6 +318,22 @@ _sqlite_message_sent_sql() {
 storage_send() {
   local team="$1" from="$2" to="$3" body="$4"
   local id at db; id="$(compat_uuid7)"; at="$(_sqlite_now)"; db="$(_sqlite_db "$team")"
+  # Refuse to store a message whose timestamp or id did not come out. Both are
+  # produced by command substitution around an external command (`date`, and the
+  # helpers behind compat_uuid7); when that command cannot start or fails, `$( )`
+  # yields an empty string and nothing checked it, so the row was written with
+  # at='' and send.sh still printed "Sent to ...". The sync cipher helper
+  # validates created_at before sealing, so such a row can never be pushed.
+  case "$at" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    *) printf 'agmsg: refusing to store a message with an unusable timestamp ("%s"); nothing was written.\n' "$at" >&2
+       return 1 ;;
+  esac
+  case "$id" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-7[0-9a-f][0-9a-f][0-9a-f]-8[0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *) printf 'agmsg: refusing to store a message with an unusable id ("%s"); nothing was written.\n' "$id" >&2
+       return 1 ;;
+  esac
   local insert; insert="$(_sqlite_message_sent_sql "$team" "$from" "$to" "$body" "$id" "$at")"
   # Try the INSERT first and only fall back to storage_init on failure (the #114
   # pattern). Running storage_init — which issues PRAGMA journal_mode=WAL and the
