@@ -270,3 +270,32 @@ RUN
   [ "$(cat "$first_file")" = "$(cat "$second_file")" ]
   [ "$(agmsg_sqlite "$(agmsg_db_path demo)" "SELECT COUNT(*) FROM sync_messages;" | tr -d '\r')" -eq 1 ]
 }
+
+@test "seal: a multibyte character split across a stdin chunk boundary is not corrupted" {
+  # `seal` reads its request from stdin. A pipe or file delivers it in 64 KiB
+  # chunks, and a chunk boundary that lands inside a multibyte character used to
+  # decode as U+FFFD in each half -- the sealed body silently differed from what
+  # was sent. 30000 x U+3042 is 90000 bytes, so the first boundary falls inside
+  # a character (65536 is not a multiple of 3). The "none" cipher needs no age.
+  local req="$BATS_TEST_TMPDIR/seal-request.json" out
+  node -e '
+    const body = "\u3042".repeat(30000);
+    process.stdout.write(JSON.stringify({
+      type: "sync_seal", envelope_v: 1, max_blob_bytes: 1048576, protocol_version: 1,
+      wire_id: "3f2b8c1e-5d4a-4b7c-8e9f-0a1b2c3d4e5f",
+      team_id: "018f3f7e-0000-7000-8000-000000000001",
+      cipher: "none", key_id: null,
+      projection: { body, created_at: "2026-01-01T00:00:00.000000Z",
+                    from_agent: "alice", to_agent: "bob" } }));
+  ' > "$req"
+  out=$(cat "$req" | node "$SCRIPTS/internal/sync-cipher.mjs" seal)
+  printf '%s' "$out" | node -e '
+    const envelope = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const message = JSON.parse(Buffer.from(envelope.blob, "base64").toString("utf8"));
+    if (message.body !== "\u3042".repeat(30000)) {
+      console.error("body corrupted: " + message.body.length + " chars, " +
+        (message.body.match(/\uFFFD/g) || []).length + " replacement chars");
+      process.exit(1);
+    }
+  '
+}

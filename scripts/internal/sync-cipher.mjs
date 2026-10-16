@@ -799,10 +799,15 @@ export async function openEnvelope(input) {
   return profile.open(input);
 }
 
+// Collect the raw bytes and decode once. Appending each chunk to a string
+// decodes every chunk on its own, so a multibyte character split across a chunk
+// boundary (64 KiB for a pipe or file) became U+FFFD in the sealed message.
 async function readStdin() {
-  let input = "";
-  for await (const chunk of process.stdin) input += chunk;
-  return input;
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Human-facing progress for the bulk path only. A steady-state page is a
