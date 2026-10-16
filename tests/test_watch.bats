@@ -1932,3 +1932,14 @@ _claim_in_window() {   # <team> <agent> <new-sid> — steal the pair mid-turn
                  if (l !~ /^#/) print }' <<<"$named")"
   [ -z "$live" ]
 }
+
+# A body containing U+001F (the field separator of the row watch.sh parses) used
+# to push the tail of the body into the `cursor` field, so the cursor handed to
+# the consume step was not a number, the consume failed, and the same page was
+# delivered again on every poll.
+@test "watch: a body containing U+001F is delivered whole and the cursor advances" {
+  skip_on_windows "watcher background launch under Git Bash (#182)"
+  bash "$SCRIPTS/send.sh" team bob alice "left$(printf '\037')right" >/dev/null
+  run_watcher_until "sess-us-body" "$TEST_SKILL_DIR/us-body.log" x1fright
+  grep -qF 'left\x1fright' "$TEST_SKILL_DIR/us-body.log"
+}

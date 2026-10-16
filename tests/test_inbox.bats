@@ -480,3 +480,42 @@ _codex_proj() {
   grep -qF -- "CIBIG-99-" <<< "$output"
   [ "$(unread_count alice)" -eq 0 ]
 }
+
+# --- record separator (U+001F) inside a body ----------------------------
+#
+# inbox.sh, check-inbox.sh and history.sh turn each message into one line of
+# `from <US> body <US> at <US> id` and split it with `IFS=$'\x1f' read`. Newline
+# and tab were escaped in the body; US itself was not, so a body containing one
+# added a field: the tail of the body landed in the timestamp slot, and the id
+# the mark-read step used was "<timestamp><US><id>", which matches no message.
+# The message was shown on every run and never became read.
+
+@test "inbox: a body containing U+001F is shown whole and marked read" {
+  bash "$SCRIPTS/send.sh" testteam bob alice "left$(printf '\037')right" >/dev/null
+  run bash "$SCRIPTS/inbox.sh" testteam alice
+  [ "$status" -eq 0 ]
+  grep -qF -- 'left\x1fright' <<< "$output"
+  grep -qF -- '[2' <<< "$output"   # the timestamp column is still a timestamp
+  [ "$(unread_count alice)" -eq 0 ]
+  run bash "$SCRIPTS/inbox.sh" testteam alice
+  grep -qF -- "No new messages" <<< "$output"
+}
+
+@test "check-inbox: a body containing U+001F is shown whole and marked read" {
+  bash "$SCRIPTS/send.sh" testteam bob alice "left$(printf '\037')right" >/dev/null
+  run bash -c "echo '{}' | bash '$SCRIPTS/check-inbox.sh' claude-code /tmp/project-a"
+  [ "$status" -eq 0 ]
+  # The hook payload is JSON, so the backslash of the escape is itself escaped.
+  grep -qF -- 'left\\x1fright' <<< "$output"
+  [ "$(unread_count alice)" -eq 0 ]
+}
+
+@test "history: a body containing U+001F is shown whole and keeps its unread marker" {
+  bash "$SCRIPTS/send.sh" testteam bob alice "left$(printf '\037')right" >/dev/null
+  run bash "$SCRIPTS/history.sh" testteam alice
+  [ "$status" -eq 0 ]
+  grep -qF -- 'left\x1fright' <<< "$output"
+  # history never marks anything read, and the unread marker needs the id.
+  grep -qF -- "●" <<< "$output"
+  [ "$(unread_count alice)" -eq 1 ]
+}

@@ -72,7 +72,7 @@ _agmsg_rows_sql=$(mktemp "${TMPDIR:-/tmp}/agmsg-inbox-rows.XXXXXX") || exit 13
 trap 'rm -f "$_agmsg_rows_sql"' EXIT HUP INT TERM
 {
   printf "%s\n" "SELECT json_extract(value,'\$.from') || char(31) ||"
-  printf "%s\n" "       replace(replace(json_extract(value,'\$.body'), char(10), '\n'), char(9), '\t') || char(31) ||"
+  printf "%s\n" "       replace(replace(replace(json_extract(value,'\$.body'), char(10), '\n'), char(9), '\t'), char(31), '\x1f') || char(31) ||"
   printf "%s\n" "       json_extract(value,'\$.at') || char(31) ||"
   printf "%s\n" "       json_extract(value,'\$.id')"
   printf "FROM json_each('"
